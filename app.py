@@ -9,41 +9,41 @@ DATABASE = 'clinic.db'
 # ========================================================
 # إعدادات سيرفر الواتساب (WAHA)
 # ========================================================
-WAHA_API_URL = "https://wahamy-whatsapp-ap.onrender.com" # استبدله برابط سيرفر الواتساب الخاص بك
-WAHA_SESSION = "clinic1" # استبدله باسم الجلسة التي أنشأتها عند مسح الـ QR
+# ⚠️ استبدل هذا الرابط برابط سيرفر WAHA الخاص بك (بدون شرطة مائلة في النهاية)
+WAHA_API_URL = "https://clinic-web-app-2ni4.onrender.com/" 
+WAHA_SESSION = "clinic1" 
 
 # ========================================================
-# ترقية قاعدة البيانات
+# تهيئة قاعدة البيانات (جاهزة للبيئة السحابية)
 # ========================================================
-def upgrade_db():
+def init_db():
     with sqlite3.connect(DATABASE) as db:
         cur = db.cursor()
-        try:
-            cur.execute("ALTER TABLE appointments ADD COLUMN reminder_sent INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
+        
+        # 1. إنشاء جدول المرضى
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phone TEXT NOT NULL
+            )
+        ''')
+        
+        # 2. إنشاء جدول المواعيد
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS appointments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                appointment_date TEXT NOT NULL,
+                status TEXT DEFAULT 'Scheduled',
+                reminder_sent INTEGER DEFAULT 0,
+                FOREIGN KEY (patient_id) REFERENCES patients (id)
+            )
+        ''')
+        db.commit()
+        print("[Database] تم تهيئة قاعدة البيانات والجداول بنجاح.")
 
-        try:
-            cur.execute('''
-                CREATE TABLE IF NOT EXISTS patients_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    phone TEXT NOT NULL
-                )
-            ''')
-            try:
-                cur.execute("INSERT OR IGNORE INTO patients_new (id, name, phone) SELECT id, name, phone FROM patients")
-                cur.execute("DROP TABLE patients")
-            except sqlite3.OperationalError:
-                pass 
-                
-            cur.execute("ALTER TABLE patients_new RENAME TO patients")
-            db.commit()
-            print("[Database] تم تهيئة قاعدة البيانات بنجاح.")
-        except Exception as e:
-            print(f"[Database Error] {e}")
-
-upgrade_db()
+init_db()
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -63,7 +63,6 @@ def close_connection(exception):
 # ========================================================
 def send_whatsapp_message(phone_number, message_text):
     """إرسال رسالة عبر محرك WAHA"""
-    # محرك واتساب يطلب صيغة محددة للرقم تنتهي بـ @c.us
     chat_id = f"{phone_number}@c.us"
     url = f"{WAHA_API_URL}/api/sendText"
     
@@ -86,7 +85,6 @@ def whatsapp_webhook():
     """هذه الدالة تستقبل الردود آلياً من سيرفر الواتساب"""
     data = request.json
     
-    # محرك WAHA يرسل أنواعاً كثيرة من البيانات، نحن نهتم فقط بـ "الرسائل النصية القادمة"
     if not data or data.get("event") != "message":
         return jsonify({"status": "ignored"}), 200
 
@@ -94,7 +92,6 @@ def whatsapp_webhook():
     from_number_full = payload.get("from", "")
     text = str(payload.get("body", "")).strip()
     
-    # استخراج رقم الهاتف الصافي (إزالة @c.us من النهاية)
     phone = from_number_full.split('@')[0]
     
     if text in ['1', '2']:
@@ -105,7 +102,6 @@ def whatsapp_webhook():
         db.row_factory = sqlite3.Row
         cur = db.cursor()
         
-        # جلب كل المرضى المرتبطين بهذا الرقم (لدعم العائلات)
         cur.execute("SELECT id FROM patients WHERE phone = ?", (phone,))
         patients = cur.fetchall()
         
@@ -114,7 +110,6 @@ def whatsapp_webhook():
                 cur.execute("UPDATE appointments SET status = ? WHERE patient_id = ? AND status = 'Scheduled'", (new_status, p['id']))
             db.commit()
             
-            # الرد على المريض لتأكيد العملية
             send_whatsapp_message(phone, reply_text)
             print(f"[Success] تم تحديث مواعيد الرقم {phone} إلى {new_status}")
         db.close()
