@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>لوحة تحكم العيادة</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
+        .status-dot { color: #28a745; font-weight: bold; }
+        
+        form { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+        input { padding: 10px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        
+        button { border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.3s; color: white; }
+        button:disabled { background-color: #6c757d !important; cursor: not-allowed; }
+        
+        .btn-primary { background-color: #007bff; }
+        .btn-primary:hover { background-color: #0056b3; }
+        
+        .btn-delete { background-color: #dc3545; padding: 5px 10px; font-size: 14px; }
+        .btn-delete:hover { background-color: #c82333; }
+        
+        /* تصميم الزر الجديد للإرسال اليدوي */
+        .btn-success { background-color: #28a745; padding: 10px 20px; font-size: 15px;}
+        .btn-success:hover { background-color: #218838; }
+        .table-controls { display: flex; justify-content: flex-end; margin-bottom: 15px; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: right; border-bottom: 1px solid #eee; }
+        th { background-color: #f1f1f1; }
+        
+        .status-Scheduled { background-color: #fff3cd; color: #856404; padding: 5px 10px; border-radius: 20px; font-size: 14px; }
+        .status-Confirmed { background-color: #d4edda; color: #155724; padding: 5px 10px; border-radius: 20px; font-size: 14px; }
+        .status-Cancelled { background-color: #f8d7da; color: #721c24; padding: 5px 10px; border-radius: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2>لوحة تحكم مواعيد العيادة</h2>
+        <span class="status-dot">● متصل وتحديث مباشر نشط</span>
+    </div>
+
+    <form id="addForm">
+        <div>
+            <label>اسم المريض:</label>
+            <input type="text" id="name" required placeholder="مثال: خالد محمد">
+        </div>
+        <div>
+            <label>رقم الهاتف (معرف تيليجرام):</label>
+            <input type="text" id="phone" required placeholder="مثال: 5831431033">
+        </div>
+        <div>
+            <label>تاريخ ووقت الموعد:</label>
+            <input type="datetime-local" id="date" required>
+        </div>
+        <button type="submit" id="submitBtn" class="btn-primary">تسجيل الموعد</button>
+    </form>
+
+    <!-- مساحة أدوات الجدول (تحتوي على زر الإرسال اليدوي) -->
+    <div class="table-controls">
+        <button id="manualTriggerBtn" class="btn-success">إرسال التنبيهات يدوياً 🚀</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>اسم المريض</th>
+                <th>رقم الهاتف</th>
+                <th>توقيت الموعد</th>
+                <th>حالة التأكيد</th>
+                <th>إجراء</th>
+            </tr>
+        </thead>
+        <tbody id="appointmentsTable">
+            <!-- سيتم إضافة المواعيد هنا عبر الجافاسكريبت -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+    // جلب المواعيد
+    async function loadAppointments() {
+        try {
+            const response = await fetch('/appointments');
+            const data = await response.json();
+            const tbody = document.getElementById('appointmentsTable');
+            tbody.innerHTML = '';
+            
+            data.forEach((appt, index) => {
+                let statusText = appt.status; 
+                let statusClass = `status-${appt.status}`;
+                
+                if (appt.status === 'Scheduled') statusText = 'بانتظار التأكيد ⏳';
+                if (appt.status === 'Confirmed') statusText = 'مؤكد ✓';
+                if (appt.status === 'Cancelled') statusText = 'ملغى ❌';
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${appt.name}</td>
+                        <td>${appt.phone}</td>
+                        <td>${appt.appointment_date.replace('T', ' ')}</td>
+                        <td><span class="${statusClass}">${statusText}</span></td>
+                        <td>
+                            <button onclick="deleteAppointment(${appt.id})" class="btn-delete">مسح 🗑️</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        } catch (error) {
+            console.error("Error loading appointments:", error);
+        }
+    }
+
+    // إضافة موعد جديد
+    document.getElementById('addForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const btn = document.getElementById('submitBtn');
+        btn.innerText = "جاري التسجيل...";
+        btn.disabled = true;
+
+        const payload = {
+            name: document.getElementById('name').value,
+            phone: document.getElementById('phone').value,
+            appointment_date: document.getElementById('date').value
+        };
+
+        try {
+            const response = await fetch('/appointments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if(response.ok) {
+                document.getElementById('addForm').reset();
+                await loadAppointments();
+            } else {
+                alert("⚠️ حدث خطأ في قاعدة البيانات أثناء التسجيل!");
+            }
+        } catch (error) {
+            alert("❌ لا يمكن الاتصال بالسيرفر! تأكد أن شاشة CMD تعمل.");
+        } finally {
+            btn.innerText = "تسجيل الموعد";
+            btn.disabled = false;
+        }
+    });
+
+    // الإرسال اليدوي للتنبيهات
+    document.getElementById('manualTriggerBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('manualTriggerBtn');
+        const originalText = btn.innerText;
+        btn.innerText = "جاري الإرسال...";
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/trigger-reminders', { method: 'POST' });
+            if(response.ok) {
+                alert("✅ تم إرسال التنبيهات للمواعيد المعلقة بنجاح!");
+            } else {
+                alert("⚠️ حدث خطأ أثناء إرسال التنبيهات.");
+            }
+        } catch (error) {
+            alert("❌ لا يمكن الاتصال بالسيرفر! تأكد أن شاشة CMD تعمل.");
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    });
+
+    // مسح الموعد
+    async function deleteAppointment(id) {
+        if (confirm('هل أنت متأكد من مسح هذا الموعد نهائياً؟')) {
+            await fetch(`/appointments/${id}`, { method: 'DELETE' });
+            loadAppointments();
+        }
+    }
+
+    // التحديث المباشر
+    loadAppointments();
+    setInterval(loadAppointments, 5000);
+</script>
+
+</body>
+</html>
